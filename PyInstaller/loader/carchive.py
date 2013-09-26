@@ -137,20 +137,44 @@ class CArchive(archive.Archive):
         else:
             self.lib.seek(0, 2)
         filelen = self.lib.tell()
+        magic = None
+        pyvers = None
         if self.len:
             self.lib.seek(self.start+self.len-self.TRLLEN, 0)
         else:
-            self.lib.seek(-self.TRLLEN, 2)
-        (magic, totallen, tocpos, toclen, pyvers) = struct.unpack(self.TRLSTRUCT,
+            # self.lib.seek(-self.TRLLEN, 2)
+            #
+            # we don't know where the "magic" is since the ".exe" is now
+            # signed, which breaks the (end - 24) logic.
+            #
+            # so, we need to figure out the correct offset of the magic!
+
+            offset = 24  # TRLLEN
+            while True:
+                self.lib.seek(0, 2)
+                self.lib.seek(-offset, 2)
+                try:
+                    (magic, totallen, tocpos, toclen, pyvers) = struct.unpack(self.TRLSTRUCT,
                             self.lib.read(self.TRLLEN))
+                    if "MEI" in magic:
+                        print "[+] magic found at", offset
+                        break
+                except:
+                    pass
+                offset += 1
+
         if magic != self.MAGIC:
             raise RuntimeError("%s is not a valid %s archive file"
                                % (self.path, self.__class__.__name__))
         self.pkgstart = filelen - totallen
+        # adjust this according to "magic" offset!
+        self.pkgstart = self.pkgstart - (offset - self.TRLLEN)
+
         if self.len:
             if totallen != self.len or self.pkgstart != self.start:
                 raise RuntimeError, "Problem with embedded archive in %s" % self.path
         self.tocpos, self.toclen = tocpos, toclen
+        self.pyvers = pyvers
 
     def loadtoc(self):
         """Load the table of contents into memory."""
